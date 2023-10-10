@@ -1,0 +1,107 @@
+## Load Data
+
+```{r}
+rm(list=ls())
+library(rjags)
+dataset = readRDS("dataset.rds")
+
+
+```
+
+------------------------------------------------------------------------
+
+## VISUAL REP OF DATA
+
+Visual representation of the data (to create the plots for the report)
+
+```{r}
+plot(dataset$newpos_av7DSCALED,dataset$deathsH8,col="blue", xlab="new_positives_av7D",ylab="deathsH8")
+plot(dataset$color, dataset$deathsH8,col="blue", xlab="color",ylab="deathsH8")
+plot(dataset$hospitalized_with_symptoms_av7DSCALED,dataset$deathsH8,col="blue", xlab="hosp_with_syntoms_av7D",ylab="deathsH8")
+plot(dataset$intensive_care_av7DSCALED,dataset$deathsH8,col="blue", xlab="IC_av7D",ylab="deathsH8")
+hist(dataset$deathsH8)
+```
+
+### THE BAYESIAN MODEL
+
+#### WITH ZELLNER'S G-PRIOR------------------------------------------------------------------------------------------
+
+```{r}
+#load BAS package
+library(BAS)
+
+#hyper parameter alpha
+alphaparam=212
+
+#fit model with BAS
+cog.bas=bas.lm(deathsH8 ~ newpos_av7DSCALED+hospitalized_with_symptoms_av7DSCALED+intensive_care_av7DSCALED+color,data=dataset,prior="g-prior",alpha=alphaparam, modelprior=Bernoulli(1), include.always = ~ ., n.models=1)
+
+#save coefficients in beta
+beta=coef(cog.bas)
+
+#plots
+plot(beta, subset=2:7,ask =F)
+
+# Retreat bounds of credible intervals
+out = confint(beta)[,0:2]
+
+# Combine results and construct summary table
+names = c("posterior mean", "posterior std", colnames(out))
+out = cbind(beta$postmean, beta$postsd, out)
+colnames(out) = names
+print(round(out,3))
+```
+
+Try with smaller alpha:
+
+```{r}
+library(BAS)
+
+alphaparam=1
+#fit model with BAS
+cog.bas=bas.lm(deathsH8 ~ newpos_av7DSCALED+hospitalized_with_symptoms_av7DSCALED+intensive_care_av7DSCALED+color,data=dataset,prior="g-prior",alpha=alphaparam, modelprior=Bernoulli(1), include.always = ~ ., n.models=1)
+
+#save coefficients in beta
+beta=coef(cog.bas)
+beta
+```
+
+Try with bigger alpha:
+
+```{r}
+library(BAS)
+
+alphaparam=400
+#fit model with BAS
+cog.bas=bas.lm(deathsH8 ~ newpos_av7DSCALED+hospitalized_with_symptoms_av7DSCALED+intensive_care_av7DSCALED+color,data=dataset,prior="g-prior",alpha=alphaparam, modelprior=Bernoulli(1), include.always = ~ ., n.models=1)
+
+#save coefficients in beta
+beta=coef(cog.bas)
+beta
+
+#return at the initial value of alpha for the plots below
+alphaparam=212
+```
+
+#### TRY WITH ZELLNER'S SLOW PRIOR-----------------------------------------------------------------------------
+
+```{r}
+cog.basZS=bas.lm(deathsH8 ~ newpos_av7DSCALED+hospitalized_with_symptoms_av7DSCALED+intensive_care_av7DSCALED+color,data=dataset,prior="JZS",alpha=alphaparam, modelprior=Bernoulli(1), include.always = ~ ., n.models=1)
+betaZS = coef(cog.basZS)
+
+#credible intervals
+out = confint(betaZS)[,0:2]
+
+# Combine results and construct summary table
+names = c("posterior mean", "posterior std", colnames(out))
+out = cbind(betaZS$postmean, betaZS$postsd, out)
+colnames(out) = names
+print(round(out,3))
+```
+
+#### COMPARISON BETWEEN THE BETA PARAMETERS USING the 2 DIFFERENT PRIORS -----------
+
+```{r}
+plot(confint(beta),main=paste("g-prior alpha=",alphaparam))
+plot(confint(betaZS),main=paste("ZS prior"))
+```

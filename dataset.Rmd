@@ -1,0 +1,176 @@
+## Load Data
+
+```{r}
+datasetRAW = read.csv(file="dpc-covid19-ita-regioni.csv")
+colorsRaw = read.csv(file="covid-19-zone.csv")
+```
+
+## Prepare Data
+
+
+
+#### Select the relevant columns only
+
+```{r}
+
+
+dataset = subset(datasetRAW, denominazione_regione=="Lombardia", select=c(data, ricoverati_con_sintomi, terapia_intensiva, totale_ospedalizzati, nuovi_positivi, deceduti, tamponi))
+
+colors = subset(colorsRaw, select=c(Giorno,Lombardia))
+
+```
+
+#### Rename columns
+
+```{r}
+names(colors)=c("date","colorLabel")
+names(dataset) = c("date","hospitalized_with_symptoms","intensive_care","total_hosp","new_positives","deaths","tests")
+
+
+```
+
+
+#### Deaths and tests per day
+
+```{r}
+deaths_per_day = rep(0,length(dataset$deaths))
+tests_per_day = rep(0,length(dataset$deaths))
+for(i in 2:length(dataset$deaths)){
+  deaths_per_day[i] = dataset$deaths[i] - dataset$deaths[i-1]
+  tests_per_day[i] = dataset$tests[i] - dataset$tests[i-1]
+}
+dataset = cbind(dataset,deaths_per_day,tests_per_day )
+
+
+```
+
+#### Date type for date
+
+```{r}
+dataset$date = as.Date( substr(dataset$date,0,10),format="%Y-%m-%d")
+colors$date = as.Date( colors$date, format="%Y-%m-%d")
+```
+
+#### Add day of the week
+```{r}
+dataset$week_day = weekdays(dataset$date)
+```
+
+#### Time interval
+
+From 2020-12-06 to 2021-07-05
+
+```{r}
+start = as.Date("2020-12-06")
+end = as.Date("2021-07-05")
+```
+
+#### Get the average number of detected positives over the previous 7 days
+
+```{r}
+newpos_av7D = c()
+hosp_av7D = c()
+intensive_care_av7D = c()
+hospitalized_with_symptoms_av7D = c()
+day = start
+while(day <= end){
+  newpos_av7D = append(newpos_av7D,mean(dataset$new_positives[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  hosp_av7D = append(hosp_av7D,mean(dataset$total_hosp[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  intensive_care_av7D = append(intensive_care_av7D,mean(dataset$intensive_care[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  hospitalized_with_symptoms_av7D = append(hospitalized_with_symptoms_av7D,mean(dataset$hospitalized_with_symptoms[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  day = day+1
+}
+```
+
+
+#### Data by week
+```{r}
+start = as.Date("2020-12-06")
+end = as.Date("2021-07-05")
+
+intensive_care_week = c() 
+intensive_care_weekH8 = c() 
+
+newpos_week = c()
+newpos_weekH8 = c()
+
+hospitalized_with_symptoms_week = c()
+hospitalized_with_symptoms_avg8H = c()
+
+day = start
+while(day <= end){
+   
+  newpos_week = append(newpos_week, mean(dataset$new_positives[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  intensive_care_weekH8 = append(intensive_care_weekH8, mean(dataset$intensive_care[dataset$date>=day & dataset$date <= day+6]))
+  
+  hospitalized_with_symptoms_week = append(hospitalized_with_symptoms_week,mean(dataset$hospitalized_with_symptoms[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+day = day+7
+  
+}
+
+data7 = data.frame(seq(1,31,1),intensive_care_weekH8,newpos_week,hospitalized_with_symptoms_week)
+names(data7) = c("week","intensive_care_weekH8","newpos_week","hospitalized_with_symptoms_week")
+
+```
+
+
+#### total_hosp and intensive_care 7 days ahead
+
+```{r}
+dataPlus7 = subset(dataset, date>=start+7 & date<=end+7)
+dataPlus7 = subset(dataPlus7,select=c(total_hosp, hospitalized_with_symptoms, intensive_care, deaths_per_day))
+names(dataPlus7)=c("hospH8","symptomsH8","intcareH8", "deathsH8")
+```
+
+#### Turning colors into factors
+
+```{r}
+colors$colorLabel=factor(as.factor(colors$colorLabel),levels = c("Bianca","Gialla","Arancione","Rossa"))
+names(colors) = c("date","color")
+```
+
+#### Select the time interval of interest
+
+```{r}
+dataset = subset(dataset, date>=start & date<=end)
+colors = subset(colors, date>=start & date<=end)
+```
+
+#### Putting all together
+
+```{r}
+total = merge(dataset,colors,by="date")
+total = cbind(total, dataPlus7, newpos_av7D, hosp_av7D, hospitalized_with_symptoms_av7D, intensive_care_av7D)
+rownames(total) = NULL
+```
+
+#### Remove useless columns
+
+```{r}
+total=subset(total, select=c(date,newpos_av7D,hospitalized_with_symptoms_av7D,intensive_care_av7D,color,deathsH8))
+```
+
+###STANDARDIZE QUANTITATIVE COLUMNS+ KEEP NON STANDARDIZED NEW_POS_AV7D
+```{r}
+newpos_av7D_not_scaled=total$newpos_av7D
+total = cbind(total,newpos_av7D_not_scaled)
+total$newpos_av7DSCALED=scale(total$newpos_av7D)
+total$hospitalized_with_symptoms_av7DSCALED=scale(total$hospitalized_with_symptoms_av7D)
+total$intensive_care_av7DSCALED=scale(total$intensive_care_av7D)
+total$deathsH8SCALED=scale(total$deathsH8)
+```
+
+
+
+#### Save 
+```{r}
+saveRDS(total,"dataset.rds")
+saveRDS(data7,"weekly.rds")
+
+```

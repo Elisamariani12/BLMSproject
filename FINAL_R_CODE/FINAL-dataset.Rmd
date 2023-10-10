@@ -1,0 +1,190 @@
+---
+title: "dataset"
+output: html_document
+---
+
+## Load Data
+
+```{r}
+datasetRAW = read.csv(file="dpc-covid19-ita-regioni.csv")
+colorsRaw = read.csv(file="covid-19-zone.csv")
+```
+
+## Prepare Data
+
+#### Select the relevant columns only
+
+We select all the features useful to our problem in the dataset datasetRAW: data, ricoverati_con_sintomi, terapia_intensiva, totale_ospedalizzati, nuovi_positivi, deceduti, tamponi. We select in both dataset datasetRAW and colorsRAW all the observations for the region "Lombardia".
+
+```{r}
+dataset = subset(datasetRAW, denominazione_regione=="Lombardia", select=c(data, ricoverati_con_sintomi, terapia_intensiva, totale_ospedalizzati, nuovi_positivi, deceduti, tamponi))
+colors = subset(colorsRaw, select=c(Giorno,Lombardia))
+```
+
+#### Rename columns
+
+```{r}
+names(colors)=c("date","colorLabel")
+names(dataset) = c("date","hospitalized_with_symptoms","intensive_care","total_hosp","new_positives","deaths","tests")
+```
+
+#### Deaths and tests per day
+
+We compute the total number of deaths and tests for each day in the dataset by subtracting the number of deaths/tests at time t and at time t-1. We originally had cumulative data and we want to have the values for each day to know if the number has increased or decreased compared to the previous day.
+
+```{r}
+deaths_per_day = rep(0,length(dataset$deaths))
+tests_per_day = rep(0,length(dataset$deaths))
+for(i in 2:length(dataset$deaths)){
+  deaths_per_day[i] = dataset$deaths[i] - dataset$deaths[i-1]
+  tests_per_day[i] = dataset$tests[i] - dataset$tests[i-1]
+}
+dataset = cbind(dataset,deaths_per_day,tests_per_day )
+```
+
+#### Date type for date
+
+```{r}
+dataset$date = as.Date( substr(dataset$date,0,10),format="%Y-%m-%d")
+colors$date = as.Date( colors$date, format="%Y-%m-%d")
+```
+
+#### Add day of the week
+
+```{r}
+dataset$week_day = weekdays(dataset$date)
+```
+
+#### Time interval
+
+We are only interested in studying the data collected from 2020-12-06 to 2021-07-05 so we select all the observations corresponding to this time range.
+
+```{r}
+start = as.Date("2020-12-06")
+end = as.Date("2021-07-05")
+```
+
+#### Get the average number of detected positives over the previous 7 days
+
+We think that it could be useful to have the information about the 7 days before the day we are considering. So we add in our dataset new columns with the average of new positives cases, hospitalization and people in intensive care during the 7 previous days.
+
+```{r}
+# create empty vectors
+newpos_av7D = c()
+hosp_av7D = c()
+intensive_care_av7D = c()
+hospitalized_with_symptoms_av7D = c()
+day = start
+# add the average of data of the 7 previous days
+while(day <= end){
+  newpos_av7D = append(newpos_av7D,mean(dataset$new_positives[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  hosp_av7D = append(hosp_av7D,mean(dataset$total_hosp[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  intensive_care_av7D = append(intensive_care_av7D,mean(dataset$intensive_care[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  hospitalized_with_symptoms_av7D = append(hospitalized_with_symptoms_av7D,mean(dataset$hospitalized_with_symptoms[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  day = day+1
+}
+```
+
+#### CREATION SMALLER DATASET-Data by week
+
+Now we create a new dataset that will contain the information of our variables new_pos, intensive_care and hospitalized_with_symptoms by week. To do this, we create a new feature in which we compute the mean of the values of the variables for each given week. This will be useful only to make the time series forecasting part.
+
+```{r}
+start = as.Date("2020-06-01")
+end = as.Date("2021-11-01")
+
+#create empty vectors
+intensive_care_week = c() 
+newpos_week = c()
+hospitalized_with_symptoms_week = c()
+
+
+#we begin at t=2020-12-06
+day = start
+
+while(day <= end){
+   
+  #add to the vector the mean of new positives for the last 7 days
+  newpos_week = append(newpos_week, mean(dataset$new_positives[dataset$date>=day-7 & dataset$date <= day-1]))
+  
+  #add the mean of the number of people in intensive care during the next 7 days from the current day
+  intensive_care_week = append(intensive_care_week, mean(dataset$intensive_care[dataset$date>=day & dataset$date <= day+6]))
+  
+  hospitalized_with_symptoms_week = append(hospitalized_with_symptoms_week,mean(dataset$hospitalized_with_symptoms[dataset$date>=day-7 & dataset$date <= day-1]))
+
+day = day+7
+  
+}
+data7 = data.frame(seq(1,75,1),intensive_care_week,newpos_week,hospitalized_with_symptoms_week)
+names(data7) = c("week","intensive_care_week","newpos_week","hospitalized_with_symptoms_week")
+```
+
+#### deaths 7 days ahead
+
+We create the variable deathsH8 containing the number of deaths for the day t+7 from the day t we are considering. This variable is the one we will forecast.
+
+```{r}
+start = as.Date("2020-12-06")
+end = as.Date("2021-07-05")
+
+dataPlus7 = subset(dataset, date>=start+7 & date<=end+7)
+dataPlus7 = subset(dataPlus7,select=c(deaths_per_day))
+names(dataPlus7)=c("deathsH8")
+```
+
+#### Turning colors into factors
+
+```{r}
+colors$colorLabel=factor(as.factor(colors$colorLabel),levels = c("Bianca","Gialla","Arancione","Rossa"))
+names(colors) = c("date","color")
+```
+
+#### Select the time interval of interest
+
+```{r}
+dataset = subset(dataset, date>=start & date<=end)
+colors = subset(colors, date>=start & date<=end)
+```
+
+#### Putting all together
+
+We merge the two datasets dataset (containing all the useful features for Lombardia for the specific time slot) and the dataset colors (containing the color of Lombardia for the specific timeslot) together.
+
+```{r}
+total = merge(dataset,colors,by="date")
+total = cbind(total, dataPlus7, newpos_av7D, hosp_av7D, hospitalized_with_symptoms_av7D, intensive_care_av7D)
+rownames(total) = NULL
+```
+
+#### Remove useless columns
+
+```{r}
+total=subset(total, select=c(date,new_positives,newpos_av7D,hospitalized_with_symptoms_av7D,intensive_care_av7D,color,deathsH8))
+```
+
+###STANDARDIZE QUANTITATIVE COLUMNS+ KEEP NON STANDARDIZED NEW_POS_AV7D
+
+We standardize the values of each variable that we keep in order to have values all in the same range.
+
+```{r}
+#We add in our dataset 4 new columns with standardized values of our features
+total$newpos_av7DSCALED=scale(total$newpos_av7D)
+total$hospitalized_with_symptoms_av7DSCALED=scale(total$hospitalized_with_symptoms_av7D)
+total$intensive_care_av7DSCALED=scale(total$intensive_care_av7D)
+total$deathsH8SCALED=scale(total$deathsH8)
+
+total=subset(total, select=-c(hospitalized_with_symptoms_av7D,intensive_care_av7D))
+```
+
+#### Save
+
+These will be our two final dataset: the first one will be used to make the forecasting of deathsH8 and the second one to make the problem of time series forcasting.
+
+```{r}
+saveRDS(total,"dataset.rds")
+saveRDS(data7,"weekly.rds")
+```

@@ -1,0 +1,66 @@
+---
+title: "LMRegression"
+output:
+  pdf_document: default
+  html_document: default
+date: "2022-07-16"
+---
+
+output: pdf_document: default html_document: default --- \# LM Regression
+
+## Load Data
+
+```{r}
+rm(list = ls())
+dataset = readRDS("dataset.rds")
+library(ggplot2)
+```
+
+## Estimate the number of new deaths cases 8 days ahead
+
+We estimate the number of deaths 7 days after the current day by using in each case a different covariate: first the number of new positives, then the number of patients hospitalized with symptoms, then the number of people in intensive care and finally the color of Lombardia.
+
+### deathsH8 vs newpos_av7D
+
+```{r}
+#We fit a simple linear regression 
+deathsH8.lm = lm(deathsH8 ~ newpos_av7DSCALED, data=dataset)
+summary(deathsH8.lm)
+
+#beta comprises the weight that are produced doing the simple linear regression
+beta = coef(deathsH8.lm)
+
+ggplot(data=dataset, aes(x= newpos_av7DSCALED, y = deathsH8))+
+  geom_point(color = "steelblue") +
+  geom_abline(intercept = beta[1], slope=beta[2], size =1, col="red")+
+  xlab("Standardized average number of positives cases in the previous 7 days")+
+  ylab("Number of deaths 8 days ahead")
+```
+
+### deathsH8 vs newpos_av7D + hospitalized_with_symptoms_av7D + intensive_care_av7D + color
+
+```{r}
+#We make a multiple linear regression using all the previous covariates 
+deathsH8.lm = lm(deathsH8 ~ newpos_av7DSCALED + hospitalized_with_symptoms_av7DSCALED + intensive_care_av7DSCALED + color, data=dataset)
+summary(deathsH8.lm)
+```
+
+In the column estimate, we observe the weight given to the variables. The standard error tells how precisely is the estimate measured. The t value is used to test whether or not the coefficient is significantly different from 0. If it is not significant (PR\>t), then the coefficient will not add anything to the model and the variable could be dropped. From the result, we can say that our covariates are significative except the colorGialla.
+
+#### Q-Q Plot
+
+```{r}
+qqnorm(dataset$deathsH8)
+qqline(dataset$deathsH8, col="steelblue", lwd=2)
+```
+
+We observe that our data is uniformaly distributed because the points fall on the 45-degree reference line.
+
+#### Residual Plot
+
+```{r}
+plot(deathsH8.lm$residuals, pch=16,col="steelblue", main = "Residual Plot")
+abline(h=0,col="red")
+```
+
+We observe on the plot that the hesteroscedasticity assumption is violated because the spread of the points across predicted values are not the same. It means that the precision in the estimates is reduced.

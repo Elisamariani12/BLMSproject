@@ -1,0 +1,266 @@
+## Load Data
+
+```{r}
+rm(list=ls())
+library(rjags)
+dataset = readRDS("dataset.rds")
+```
+
+## HISTOGRAMS
+
+```{r}
+xx=seq(0,150,4)
+hist(dataset$deathsH8)
+```
+
+## BAYESIAN POISSON REGRESSION: MODEL,
+
+```{r}
+
+ZIPoisXm1_string <- "model{
+   # likelihood
+    for (i in 1:n) {
+    
+    Y[i]~dpois(lambda[i])
+    log(lambda[i]) <-  alpha+ inprod(X[i,],beta[]) 
+  
+    }
+    #PREDICTION
+    Yp~dpois(lambdap)
+    log(lambdap) <-  alpha+inprod(Xp[1,],beta[])
+    
+    # hierachical PRIOR
+    alpha ~ dnorm(0,0.01) 
+    
+    for(j in 1:par){
+      s[j] ~  dgamma(0.01, 0.01)
+      beta[j] ~ dnorm(0,s[j])
+    }
+}"
+
+#LOCAL DATA FIXES TO FIT THE MODEL------------------------------------------------------------------------------------------------
+
+##add dummy columns because we have to switch to a matrix
+
+dummy_columns=data.frame(dataset[ , ! colnames(dataset$color) %in% "x1"],model.matrix( ~ dataset$color - 1, dataset$color))
+
+##leave last row for prediction
+last_row_true=tail(dataset,n=1)
+
+Yp_true=last_row_true$deathsH8
+
+last_row_true=subset(last_row_true,select = c(newpos_av7D, hospitalized_with_symptoms_av7D, intensive_care_av7D))
+last_row_colors=tail(dummy_columns,n=1)
+last_row_colors=subset(last_row_colors,select= -c(dataset.colorBianca))
+
+Xp=as.matrix(cbind(last_row_true,last_row_colors))
+
+#take the rest of the dataset for training
+dataset_cut=head(dataset,nrow(dataset)-1)
+dummy_col_cut=head(dummy_columns,nrow(dataset)-1)
+
+
+###Convert dataframe+dummy columns (of N-1 rows) to a matrix
+sub_datset=subset(dataset_cut,select=c(newpos_av7D,hospitalized_with_symptoms_av7D,intensive_care_av7D))
+
+sub_datset=cbind(sub_datset,dummy_col_cut$dataset.colorGialla,dummy_col_cut$dataset.colorArancione,dummy_col_cut$dataset.colorRossa)
+X=as.matrix(sub_datset)
+
+
+### COMPILE MODEL-----------------------------------------------------------------------------------------------------------------
+dataZP=list(X=X,Y=dataset_cut$deathsH8,n=length(dataset_cut$deathsH8),par=ncol(X),Xp=Xp)
+
+### 
+jagsZPoisXm1<- jags.model(textConnection(ZIPoisXm1_string),
+                   data = dataZP,
+                   n.chains=2,
+                   n.adapt=300)
+```
+
+```{r}
+update(jagsZPoisXm1, 3000)
+```
+
+```{r}
+outputmcmcPoisXm1=coda.samples(jagsZPoisXm1, c("beta","alpha","Yp"),
+                        n.iter=10000, progress.bar="none")
+```
+
+```{r}
+plot(outputmcmcPoisXm1[,c("alpha","beta[1]","beta[2]","beta[3]")])
+plot(outputmcmcPoisXm1[,c("beta[4]","beta[5]","beta[6]")])
+```
+
+```{r}
+library(bayesplot)
+mcmc_areas( outputmcmcPoisXm1, pars= c("alpha","beta[4]","beta[5]","beta[6]"), prob = 0.95)
+mcmc_areas( outputmcmcPoisXm1, pars= c("beta[1]","beta[2]","beta[3]"), prob = 0.95)
+```
+
+```{r}
+su1=summary(outputmcmcPoisXm1)
+su1
+```
+
+#### Compare the results with the ML estimates obtained with 'glm'
+
+```{r}
+poisson.model <- glm(deathsH8~ newpos_av7D + hospitalized_with_symptoms_av7D + intensive_care_av7D + color, data = dataset, family = poisson(link=log))
+summary(poisson.model)
+```
+
+### Prediction exercise
+
+```{r}
+plot(outputmcmcPoisXm1[,c("Yp")])
+
+```
+
+## TRY another prior-------------------------------------------------------------------------------------------
+
+```{r}
+ZIPoisXm2_string <- "model{
+   # likelihood
+    for (i in 1:n) {
+    
+    Y[i]~dpois(lambda[i])
+    log(lambda[i]) <-  alpha+ inprod(X[i,],beta[]) 
+  
+    }
+    #PREDICTION
+    Yp~dpois(lambdap)
+    log(lambdap) <-  alpha+inprod(Xp[1,],beta[])
+    
+    # hierachical PRIOR
+    alpha ~ dnorm(0,0.01) 
+    
+    m ~  dnorm(0, 0.01)
+    for(j in 1:par){
+      beta[j] ~ dnorm(m,0.01)
+    }
+}"
+
+jagsZPoisXm2<- jags.model(textConnection(ZIPoisXm2_string),
+                   data = dataZP,
+                   n.chains=2,
+                   n.adapt=300)
+
+```
+
+```{r}
+update(jagsZPoisXm2, 3000)
+```
+
+```{r}
+outputmcmcPoisXm2=coda.samples(jagsZPoisXm2, c("beta","alpha","Yp"),
+                        n.iter=10000, progress.bar="none")
+```
+
+```{r}
+plot(outputmcmcPoisXm2[,c("alpha","beta[1]","beta[2]","beta[3]")])
+plot(outputmcmcPoisXm2[,c("beta[4]","beta[5]","beta[6]")])
+```
+
+```{r}
+su2=summary(outputmcmcPoisXm2)
+su2
+```
+
+### Prediction exercise
+
+```{r}
+plot(outputmcmcPoisXm2[,c("Yp")]) 
+Yp_true
+```
+
+### Compare the results with the two priors
+
+```{r}
+s1 <- outputmcmcPoisXm1[[1]]
+s2 <- outputmcmcPoisXm2[[1]]
+par(mfrow=c(2,3))
+for(index in 2:length(colnames(s2))){
+d1 <- density(s1[,index])
+d2 <- density(s2[,index])
+mx <- max(d1$y,d2$y)
+plot(d1,ylim=c(0,mx),xlab="Beta",ylab="Posterior density",main=colnames(s2)[index],col="orange")
+lines(d2,col='red')
+abline(v=su1$quantiles[index,"50%"],col="orange") # if you want posterior means use su1$statistics[index,"Mean"]
+abline(v= su2$quantiles[index,"50%"],col="red")# if you want posterior means use su2$statistics[index,"Mean"]
+}
+```
+
+## NEG_BIN REGRESSION-----------------------------------------------------------
+
+```{r}
+jagsNegBinXm_string<-"model{
+    ## Likelihood
+    for(i in 1:n){
+      Y[i] ~ dnegbin(p[i],r)
+      p[i] <- r/(r+lambda[i])
+      log(lambda[i]) <-alpha+ inprod(X[i,],beta[]) 
+  
+    } 
+    ## Priors
+    for(j in 1:par){
+      beta[j] ~ dnorm(0, 0.0001)
+    }
+    alpha ~ dnorm(0.0,0.01)
+    r ~ dunif(0,50)
+}"
+dataNB=list(X=X,Y=dataset_cut$deathsH8,n=length(dataset_cut$deathsH8),par=ncol(X))
+jagsNegBinXm<- jags.model(textConnection(jagsNegBinXm_string),
+                   data = dataNB,
+                   n.chains=2,
+                   n.adapt=300)
+```
+
+```{r}
+update(jagsNegBinXm, 3000)
+```
+
+```{r}
+outputmcmcNegBin=coda.samples(jagsNegBinXm, c("beta","alpha"), n.iter=10000, progress.bar="none")
+
+plot(outputmcmcNegBin[,c("alpha","beta[1]","beta[2]","beta[3]")])
+plot(outputmcmcNegBin[,c("beta[4]","beta[5]","beta[6]")])
+mcmc_areas(outputmcmcNegBin, pars= c("alpha","beta[4]","beta[5]","beta[6]"), prob = 0.95)
+mcmc_areas(outputmcmcNegBin, pars= c("beta[1]","beta[2]","beta[3]"), prob = 0.95)
+
+
+
+```
+
+```{r}
+su3=summary(outputmcmcNegBin)
+
+su3
+```
+
+```{r}
+
+#  s1 <- outputmcmcPoisXm1[[1]]
+
+#  s3 <- outputmcmcNegBin[[1]]
+
+#   par(mfrow=c(2,3))
+
+#   for(index in 2:length(colnames(s3))){
+
+#   d1 <- density(s1[,index])
+
+#   d2 <- density(s3[,index])
+
+#   mx <- max(d1$y,d2$y)
+
+#   plot(d1,ylim=c(0,mx),xlab="Beta",ylab="Posterior density",main=colnames(s2)[index],col="orange")
+
+#   lines(d2,col='red')
+
+#   abline(v=su1$statistics[index,"Mean"],col="orange") # if you want posterior means use 
+
+#     abline(v= su3$statistics[index,"Mean"],col="red")# if you want posterior means use su3$statistics[index,"Mean"]
+
+#}
+
+```

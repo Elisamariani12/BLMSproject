@@ -1,0 +1,131 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# ARMAX(1,1,0) for 'intensive_care'
+
+#### Load Data
+
+```{r}
+rm(list=ls())
+library(rjags)
+dataset = readRDS("weekly.rds")
+```
+
+#### Likelihood
+
+$$
+\begin{split}
+& y_{t+1}=\mu+\sum\limits_{j=1}^m \beta_j X_t^{j}+\alpha y_t+\epsilon_t \\
+& \epsilon \sim N(0,\sigma^2)
+\end{split}
+$$
+
+#### Prior
+
+$$ 
+\begin{split}
+& \alpha \sim {\cal N}(0.5, 100) \\
+& \mu \sim {\cal N}(0, 1000) \\
+& \tau=\frac{1}{\sigma^2} \sim \mathcal{G}(0.001,0.001) \\
+& \beta \sim    {\cal N} (0,1000)
+\end{split}
+$$
+
+### Jags Model Formulation
+
+```{r}
+modelARMAX.string <-"model {
+  ## parameters: alpha,tau,m0
+  #likeliohood 
+  mu[1] <- Y[1]
+  for (i in 2:N) {
+    Y[i] ~ dnorm(mu[i],tau)
+    Yp[i] ~ dnorm(mu[i],tau) # prediction
+    mu[i] <-mu0+alpha*Y[i-1] + inprod(X[i-1,],beta[])
+  }
+  sigma2<-1/tau
+  #prior 
+  alpha ~ dunif(-1,1)
+  tau ~ dgamma(1.0E-3, 1.0E-3)
+  mu0 ~ dnorm(0,0.001)
+  for(j in 1:par){
+      beta[j] ~ dnorm(0,0.001)
+  }
+}"
+```
+
+#### Run the chain
+
+```{r}
+covariates=subset(dataset,select=c(newpos_week,hospitalized_with_symptoms_week))
+line_data =  list("Y" = dataset$intensive_care_week, "N"=length(dataset$intensive_care_week),"par" = ncol(covariates),"X"=covariates)
+
+jagsARMAX = jags.model(textConnection(modelARMAX.string),
+                    data=line_data,
+                    n.chains = 2,
+                    n.adapt = 300)
+
+update(jagsARMAX,5000)
+
+outputmcmcARMAX=coda.samples(jagsARMAX,
+                        c('alpha',"sigma2","mu","beta[1]","beta[2]","Yp"),
+                        n.iter=100000, progress.bar="none",
+                        thin=50)
+
+```
+
+#### Summary:
+
+```{r}
+#summary(outputmcmcARMAX)
+```
+
+#### Trace Plots $\alpha$ + Trace Plots $\sigma^2$
+
+```{r}
+plot(outputmcmcARMAX[,c("alpha","sigma2")])
+
+```
+
+#### trace plots for $\beta_i$
+
+```{r}
+plot(outputmcmcARMAX[,c("beta[1]","beta[2]")])
+
+```
+
+#### True Data and Sample Estimates With Corresponding Confidence Intervals
+
+```{r}
+suARMAX=summary(outputmcmcARMAX)
+n = length(dataset$intensive_care_week)
+t=seq(1,n)
+yp=suARMAX$statistics[1:n-1]
+
+q1=suARMAX$quantiles[,1][1:n-1]
+q2=suARMAX$quantiles[,5][1:n-1]
+muest=suARMAX$statistics[1:n]
+
+plot(dataset$week,
+     dataset$intensive_care_week,
+     col="red",
+     ylab="intensive_care_week",
+     main="intensive_care_week",
+     xlab="weeks")
+
+lines(dataset$week,q1[1:n])
+lines(dataset$week,q2[1:n])
+lines(dataset$week,muest,type="p",col="green")
+```
+
+#### Autocorrelation plots:
+
+```{r}
+
+autocorr.plot(outputmcmcARMAX[,c("alpha")][2], main="alpha ACF")
+autocorr.plot(outputmcmcARMAX[,c("sigma2")][2], main="sigma2 ACF")
+
+```

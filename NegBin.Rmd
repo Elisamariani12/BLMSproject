@@ -1,0 +1,69 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Negative Binomial Regression
+
+Proudly copied from: <https://georgederpa.github.io/teaching/countModels.html>
+$$
+y_i \sim NB(p_i,r)\\
+p_i = \frac{r}{r+\lambda_i}\\
+\log{\lambda_i} = \mu_i\\
+\mu_i = \beta\textbf{X}_i\\
+\beta_j \sim \mathcal{N}(0, 0.0001)\\
+r \sim \mathcal{U}(0,50)
+$$
+
+## Load Data
+
+```{r}
+rm(list=ls())
+setwd("~/Downloads/BLMS/BLMS")
+library(rjags)
+
+dataset = readRDS("dataset.rds")
+
+newPos = dataset$newpos_av7D
+hospSympt = dataset$hospitalized_with_symptoms_av7D
+intCare = dataset$intensive_care_av7D
+deathsH8 = dataset$deathsH8
+
+Y = deathsH8
+X = cbind(newPos, hospSympt, intCare)
+data = cbind(Y, X)
+
+boxplot(data)
+```
+
+## JAGS Model
+
+```{r}
+model_string=textConnection("model{
+    ## Likelihood
+    for(i in 1:N){
+      Y[i] ~ dnegbin(p[i],r)
+      p[i] <- r/(r+lambda[i]) 
+      log(lambda[i]) <- mu[i]
+      mu[i] <- inprod(beta[], X[i,])
+    } 
+    ## Priors
+    for(j in 1:ncol){
+      beta[j] ~ dnorm(0, 0.0001)
+    }
+    r ~ dunif(0,50)
+}")
+
+N = length(Y)
+ncol = ncol(X)
+dataList = list(Y=Y, X=X, N=N, ncol=ncol) 
+
+jagsModel = jags.model(model_string, data=dataList, n.chains = 1)
+update(jagsModel, 5000)
+out = coda.samples(jagsModel, variable.names = c("beta","r"), n.iter = 10000, thin=5)
+
+summary(out)
+par(mar=c(1,1,1,1))
+plot(out)
+```

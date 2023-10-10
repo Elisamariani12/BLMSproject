@@ -1,0 +1,88 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# LM Regression
+
+## Load Data
+```{r}
+rm(list = ls())
+setwd("~/Downloads/BLMS/BLMS")
+dataset = readRDS("dataset.rds")
+library(ggplot2)
+```
+
+## Estimate the number of new deaths cases 8 days ahead
+
+### deathsH8 vs newpos_av7D
+```{r}
+deathsH8.lm = lm(deathsH8 ~ newpos_av7DSCALED, data=dataset)
+beta = coef(deathsH8.lm)
+ggplot(data=dataset, aes(x= newpos_av7DSCALED, y = deathsH8))+
+  geom_point(color = "steelblue") +
+  geom_abline(intercept = beta[1], slope=beta[2], size =1, col="red")+
+  xlab("Average number of positives in the previous 7 days")+
+  ylab("Number of deaths 8 days ahead")
+
+```
+
+
+### deathsH8 vs hospitalized_with_symptoms_av7D
+```{r}
+deathsH8.lm = lm(deathsH8 ~ hospitalized_with_symptoms_av7DSCALED, data=dataset)
+beta = coef(deathsH8.lm)
+ggplot(data=dataset, aes(x = hospitalized_with_symptoms_av7DSCALED, y = deathsH8))+
+  geom_point(color = "steelblue")+
+  geom_abline(intercept = beta[1], slope=beta[2], size =1, col="red")+
+  xlab("Average number of hospitalizized cases with symptons in the previous 7 days")+
+  ylab("Number of deaths 8 days ahead")
+```
+
+### deathsH8 vs intensive_care_av7D
+```{r}
+deathsH8.lm = lm(deathsH8 ~ intensive_care_av7DSCALED, data=dataset)
+beta = coef(deathsH8.lm)
+ggplot(data=dataset, aes(x= intensive_care_av7DSCALED, y = deathsH8))+
+  geom_point(color = "steelblue")+
+  geom_abline(intercept = beta[1], slope=beta[2], size =1, col="red")+
+  xlab("Average number of intensive care occupations in the previous 7 days")+
+  ylab("Number of deaths 8 days ahead")
+```
+
+
+### deathsH8 vs color
+```{r}
+deathsH8.lm = lm(deathsH8 ~ color, data=dataset)
+beta = coef(deathsH8.lm)
+ggplot(data=dataset, aes(x= color, y = deathsH8))+
+  geom_point(color = "steelblue")+
+  geom_abline(intercept = beta[1], slope=beta[2], size =1, col="red")+
+  xlab("Color")+
+  ylab("Number of deaths 8 days ahead")
+```
+
+
+### deathsH8 vs newpos_av7D + hospitalized_with_symptoms_av7D + intensive_care_av7D + color
+```{r}
+deathsH8.lm = lm(deathsH8 ~ newpos_av7DSCALED + hospitalized_with_symptoms_av7DSCALED + intensive_care_av7DSCALED + color, data=dataset)
+summary(deathsH8.lm)
+
+```
+
+#### Q-Q Plot
+```{r}
+qqnorm(dataset$deathsH8)
+qqline(dataset$deathsH8, col="steelblue", lwd=2)
+```
+
+#### Residual Plot
+```{r}
+plot(deathsH8.lm$residuals, pch=16,col="steelblue", main = "Residual Plot")
+```
+
+#### Influential Points
+```{r}
+cooks.distance(deathsH8.lm)
+plot(cooks.distance(deathsH8.lm), pch = 16, col = "blue", main="Influential Points")
+```

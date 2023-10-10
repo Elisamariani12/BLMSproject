@@ -1,0 +1,129 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# AR(1) of New positives
+
+## Load Data
+
+```{r}
+setwd("~/Downloads/BLMS/BLMS")
+rm(list=ls())
+library(rjags)
+dataset = readRDS("dataset.rds")
+```
+
+```{r}
+newPos.ts = ts(dataset$newpos_av7D, frequency = 7)
+newPos.dec = decompose(newPos.ts)
+newPos.trend = newPos.dec$trend
+plot(newPos.trend)
+```
+
+## Data Plot
+```{r}
+plot(dataset$date,
+     dataset$newpos_av7D_not_scaled,
+     type="l",
+     ylab="newpos_av7D_not_scaled_not_scaled",
+     xlab="time",
+     col='red',
+     main="newpos_av7D_not_scaled")
+```
+
+## Prior
+
+$$ 
+\begin{split}
+& \alpha \sim {\cal N}(0.5, 100) \\
+& \mu \sim {\cal N}(0, 1000) \\
+& \tau=\frac{1}{\sigma^2} \sim \mathcal{G}(0.001,0.001) 
+\end{split}
+$$
+
+
+## Jags Model Formulation
+```{r}
+modelAR.string <-"model {
+  ## parameters: alpha,tau,m0
+  #likeliohood 
+  mu[1] <- Y[1]
+  for (i in 2:N) {
+    Y[i] ~ dnorm(mu[i],tau)
+    Yp[i] ~ dnorm(mu[i],tau) # prediction
+    mu[i] <- m0 + alpha*Y[i-1]
+  }
+  sigma2<-1/tau
+  #prior 
+  alpha ~ dunif(-1,1)
+  tau ~ dgamma(1.0E-3, 1.0E-3)
+  m0 ~ dnorm(0.0, 1.0E-4)
+}"
+```
+
+
+## Run the chain
+```{r}
+line_data =  list("Y" = dataset$newpos_av7D_not_scaled, "N"=length(dataset$newpos_av7D_not_scaled))
+
+jagsAR = jags.model(textConnection(modelAR.string),
+                    data=line_data,
+                    n.chains = 2,
+                    n.adapt = 300)
+
+update(jagsAR,5000)
+
+outputmcmcAR=coda.samples(jagsAR,
+                        c('alpha',"sigma2","mu","Yp"),
+                        n.iter=10000, progress.bar="none")
+
+```
+
+
+## Trace Plots $\alpha$
+```{r}
+
+alpha.mcmc=outputmcmcAR[,c("alpha")]
+plot(alpha.mcmc,main="posterior alpha")
+
+```
+
+## Trace Plots $\sigma^2$
+```{r}
+sigma.mcmc=outputmcmcAR[,c("sigma2")]
+plot(sigma.mcmc,main="posterior sigma^2")
+
+```
+
+## True Data and Sample Estimates With Corresponding Confidence Intervals
+```{r}
+suAR=summary(outputmcmcAR)
+n = length(dataset$newpos_av7D_not_scaled)
+t=seq(1,n)
+yp=suAR$statistics[1:n-1]
+
+q1=suAR$quantiles[,1][1:n-1]
+q2=suAR$quantiles[,5][1:n-1]
+muest=suAR$statistics[1:n]
+
+plot(dataset$date,
+     dataset$newpos_av7D_not_scaled,
+     col="red",
+     ylab="newpos_av7D_not_scaled",
+     main="newpos_av7D_not_scaled",
+     xlab="time")
+lines(dataset$date,q1[1:n])
+lines(dataset$date,q2[1:n])
+lines(dataset$date,muest,type="p",col="green")
+```
+
+
+
+```{r}
+
+autocorr.plot(alpha.mcmc[2], main="alpha ACF")
+autocorr.plot(sigma.mcmc[2], main="sigma2 ACF")
+
+```
+
